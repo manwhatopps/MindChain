@@ -1,0 +1,96 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MindChain</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      text-align: center;
+      margin: 0;
+      padding: 50px 10px;
+    }
+    input, button {
+      padding: 10px;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    #game-area {
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧠 MindChain</h1>
+  <div id="game-area">
+    <p id="chain">Chain: </p>
+    <input id="word-input" placeholder="" autofocus />
+    <p id="timer">⏱️ Time: </p>
+    <button onclick="startGame()">Start Game</button>
+  </div>
+  <script>
+    const gameData = {
+      currentWord: "time",
+      level: 1,
+      timeLimit: 30,
+      blockLength: 3,
+      chain: ["time"]
+    };
+
+    const wordList = [
+      "ear", "eat", "end", "egg", "elm", "elf", "era", "eel", "ebb", "emu", "ego",
+      "sun", "sit", "set", "sad", "see", "sea", "saw", "sup", "sir", "sap", "son",
+      "tag", "top", "tan", "tip", "toe", "tap", "two", "tie", "toy", "tin", "tea"
+    ];
+
+    function startGame() {
+      let timeRemaining = gameData.timeLimit;
+      const input = document.getElementById("word-input");
+      const timerDisplay = document.getElementById("timer");
+      const chainDisplay = document.getElementById("chain");
+
+      input.disabled = false;
+      input.value = "";
+      input.placeholder = `Enter a ${gameData.blockLength}-letter word starting with "${gameData.currentWord.slice(-1)}"`;
+      chainDisplay.innerText = `Chain: ${gameData.chain.join(" → ")}`;
+      input.focus();
+
+      const countdown = setInterval(() => {
+        timeRemaining--;
+        timerDisplay.innerText = `⏱️ Time: ${timeRemaining}s`;
+        if (timeRemaining <= 0) {
+          clearInterval(countdown);
+          alert("⛔ Time's up! Game Over.");
+          input.disabled = true;
+        }
+      }, 1000);
+
+      input.onkeydown = function (e) {
+        if (e.key === "Enter") {
+          const word = input.value.toLowerCase();
+          const lastLetter = gameData.currentWord.slice(-1);
+
+          if (
+            word.length === gameData.blockLength &&
+            word.startsWith(lastLetter) &&
+            wordList.includes(word) &&
+            !gameData.chain.includes(word)
+          ) {
+            gameData.chain.push(word);
+            gameData.currentWord = word;
+            input.value = "";
+            clearInterval(countdown);
+            startGame(); // restart with new word
+          } else {
+            alert("Invalid word. Try again.");
+          }
+        }
+      };
+    }
+  </script>
+</body>
+</html>
+    
