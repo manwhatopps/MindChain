@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -13,24 +12,121 @@
       margin: 0;
       padding: 50px 10px;
     }
-    input, button {
-      padding: 10px;
-      font-size: 16px;
-      margin-top: 10px;
-    }
-    #game-area {
-      margin-top: 30px;
+    input, button { padding: 10px; font-size: 16px; margin-top: 10px; }
+    #game-area { margin-top: 30px; }
+    #pill {
+      display:inline-block; margin-top:10px; font-size:12px; padding:6px 10px; border-radius:999px;
+      background:#e9f7ef; color:#177245; border:1px solid #b7e4c7;
     }
   </style>
 </head>
 <body>
   <h1>🧠 MindChain</h1>
+
   <div id="game-area">
+    <div id="pill">Loading dictionary…</div>
     <p id="chain">Chain: </p>
     <input id="word-input" placeholder="" autofocus />
     <p id="timer">⏱️ Time: </p>
     <button onclick="startGame()">Start Game</button>
   </div>
+
+  <!-- 🔌 Dictionary Loader (inline) -->
+  <script>
+    // Loads big words_dictionary.json (root or /public) + merges words.txt seed.
+    (function attachDictionaryLoader(global) {
+      const Dict = { set: new Set(), size: 0, ready: false };
+
+      function addText(text) {
+        text.split(/\r?\n/).forEach(line => {
+          const w = String(line || '').trim().toLowerCase();
+          if (w && /^[a-z][a-z'-]*[a-z]$/.test(w)) Dict.set.add(w);
+        });
+        Dict.size = Dict.set.size;
+      }
+      function addJSON(body) {
+        const data = JSON.parse(body);
+        if (Array.isArray(data)) data.forEach(w => Dict.set.add(String(w).toLowerCase()));
+        else if (data && typeof data === 'object') Object.keys(data).forEach(k => Dict.set.add(k.toLowerCase()));
+        Dict.size = Dict.set.size;
+      }
+      function baseURL() {
+        const p = location.pathname;
+        return p.endsWith('/') ? p : p.replace(/\/[^/]*$/, '/');
+      }
+      async function fetchText(url) {
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) throw new Error(`Fetch ${url} failed: ${res.status}`);
+        return res.text();
+      }
+
+      async function load(opts = {}) {
+        const pill = document.getElementById('pill');
+        try {
+          // Seed quickly (words.txt at root or /public)
+          for (const u of [ baseURL() + 'words.txt', baseURL() + 'public/words.txt' ]) {
+            try { addText(await fetchText(u)); break; } catch {}
+          }
+
+          // Try big JSON at root, then /public
+          let bigURL = (opts.urlOverride || (baseURL() + 'words_dictionary.json'));
+          let triedRootFirst = true;
+
+          async function fetchBig() {
+            try {
+              const body = await fetchText(bigURL);
+              try { addJSON(body); } catch { addText(body); }
+              Dict.ready = true;
+              return;
+            } catch {
+              if (triedRootFirst) {
+                triedRootFirst = false;
+                bigURL = baseURL() + 'public/words_dictionary.json';
+              } else {
+                bigURL = baseURL() + 'words_dictionary.json';
+              }
+              const body2 = await fetchText(bigURL);
+              try { addJSON(body2); } catch { addText(body2); }
+              Dict.ready = true;
+            }
+          }
+
+          await fetchBig();
+        } catch (e) {
+          console.warn('Dictionary load failed:', e?.message || e);
+          Dict.ready = Dict.set.size > 0; // still usable with seed
+        } finally {
+          if (pill) pill.textContent = `Dictionary: ${Dict.ready ? 'ready' : 'partial'} • ${Dict.size.toLocaleString()} words`;
+        }
+        return { size: Dict.size, ready: Dict.ready };
+      }
+
+      function has(word) {
+        const s = String(word || '').trim().toLowerCase();
+        if (!s) return false;
+        if (Dict.set.has(s)) return true;
+        if (/'s$/.test(s) && Dict.set.has(s.replace(/'s$/, ''))) return true;
+        const noHyphen = s.replace(/-/g, '');
+        if (noHyphen !== s && Dict.set.has(noHyphen)) return true;
+        return false;
+      }
+
+      global.DictionaryLoader = {
+        load, has,
+        get size() { return Dict.size; },
+        get ready() { return Dict.ready; }
+      };
+    })(window);
+
+    // Start loading immediately and expose a promise you can await
+    window.dictionaryReady = (async () => {
+      const res = await DictionaryLoader.load();
+      console.log('Dictionary ready:', DictionaryLoader.ready, 'size:', DictionaryLoader.size);
+      return res;
+    })();
+  </script>
+
+  <!-- 🎮 Game logic (uses the dictionary) -->
   <script>
     const gameData = {
       currentWord: "time",
@@ -40,13 +136,18 @@
       chain: ["time"]
     };
 
-    const wordList = [
-      "ear", "eat", "end", "egg", "elm", "elf", "era", "eel", "ebb", "emu", "ego",
-      "sun", "sit", "set", "sad", "see", "sea", "saw", "sup", "sir", "sap", "son",
-      "tag", "top", "tan", "tip", "toe", "tap", "two", "tie", "toy", "tin", "tea"
-    ];
+    // Small built-in list as an ultimate fallback if big dict isn’t available
+    const fallbackList = new Set([
+      "ear","eat","end","egg","elm","elf","era","eel","ebb","emu","ego",
+      "sun","sit","set","sad","see","sea","saw","sup","sir","sap","son",
+      "tag","top","tan","tip","toe","tap","two","tie","toy","tin","tea"
+    ]);
 
-    function startGame() {
+    function placeholderFor(current, len) {
+      return `Enter a ${len}-letter word starting with "${current.slice(-1)}"`;
+    }
+
+    async function startGame() {
       let timeRemaining = gameData.timeLimit;
       const input = document.getElementById("word-input");
       const timerDisplay = document.getElementById("timer");
@@ -54,7 +155,7 @@
 
       input.disabled = false;
       input.value = "";
-      input.placeholder = `Enter a ${gameData.blockLength}-letter word starting with "${gameData.currentWord.slice(-1)}"`;
+      input.placeholder = placeholderFor(gameData.currentWord, gameData.blockLength);
       chainDisplay.innerText = `Chain: ${gameData.chain.join(" → ")}`;
       input.focus();
 
@@ -68,15 +169,23 @@
         }
       }, 1000);
 
-      input.onkeydown = function (e) {
+      input.onkeydown = async function (e) {
         if (e.key === "Enter") {
-          const word = input.value.toLowerCase();
+          const word = input.value.toLowerCase().trim();
           const lastLetter = gameData.currentWord.slice(-1);
+
+          // Ensure dictionary is ready
+          try { await window.dictionaryReady; } catch {}
+
+          // Real validation with fallback
+          const isRealWord =
+            (typeof DictionaryLoader !== 'undefined' && DictionaryLoader.ready && DictionaryLoader.has(word)) ||
+            fallbackList.has(word);
 
           if (
             word.length === gameData.blockLength &&
             word.startsWith(lastLetter) &&
-            wordList.includes(word) &&
+            isRealWord &&
             !gameData.chain.includes(word)
           ) {
             gameData.chain.push(word);
@@ -93,4 +202,3 @@
   </script>
 </body>
 </html>
-    
