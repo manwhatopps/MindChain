@@ -31,9 +31,8 @@
     <button onclick="startGame()">Start Game</button>
   </div>
 
-  <!-- 🔌 Dictionary Loader (inline) -->
+  <!-- 🔌 Dictionary Loader (inline, prefers /public) -->
   <script>
-    // Loads big words_dictionary.json (root or /public) + merges words.txt seed.
     (function attachDictionaryLoader(global) {
       const Dict = { set: new Set(), size: 0, ready: false };
 
@@ -63,12 +62,12 @@
       async function load(opts = {}) {
         const pill = document.getElementById('pill');
         try {
-          // Seed quickly (words.txt at root or /public)
-          for (const u of [ baseURL() + 'words.txt', baseURL() + 'public/words.txt' ]) {
+          // Prefer /public seed, then root
+          for (const u of [ baseURL() + 'public/words.txt', baseURL() + 'words.txt' ]) {
             try { addText(await fetchText(u)); break; } catch {}
           }
 
-          // Try big JSON at root, then /public
+          // Big dict path (can be overridden by opts.urlOverride below)
           let bigURL = (opts.urlOverride || (baseURL() + 'words_dictionary.json'));
           let triedRootFirst = true;
 
@@ -96,6 +95,7 @@
           console.warn('Dictionary load failed:', e?.message || e);
           Dict.ready = Dict.set.size > 0; // still usable with seed
         } finally {
+          const pill = document.getElementById('pill');
           if (pill) pill.textContent = `Dictionary: ${Dict.ready ? 'ready' : 'partial'} • ${Dict.size.toLocaleString()} words`;
         }
         return { size: Dict.size, ready: Dict.ready };
@@ -117,16 +117,20 @@
         get ready() { return Dict.ready; }
       };
     })(window);
+  </script>
 
-    // Start loading immediately and expose a promise you can await
+  <!-- 🚀 DEV OVERRIDE for StackBlitz (sb-dev branch only) -->
+  <script>
+    // Load the big dictionary from production GitHub Pages to keep StackBlitz light.
+    const PROD_DICT = 'https://manwhatopps.github.io/MindChain/public/words_dictionary.json';
     window.dictionaryReady = (async () => {
-      const res = await DictionaryLoader.load();
-      console.log('Dictionary ready:', DictionaryLoader.ready, 'size:', DictionaryLoader.size);
+      const res = await DictionaryLoader.load({ urlOverride: PROD_DICT });
+      console.log('Dictionary ready:', DictionaryLoader.ready, 'size:', DictionaryLoader.size, 'from:', PROD_DICT);
       return res;
     })();
   </script>
 
-  <!-- 🎮 Game logic (uses the dictionary) -->
+  <!-- 🎮 Game logic (unchanged) -->
   <script>
     const gameData = {
       currentWord: "time",
